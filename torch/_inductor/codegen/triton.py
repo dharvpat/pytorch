@@ -2018,6 +2018,13 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
             self.features
         )
 
+    def is_native_matmul(self) -> bool:
+        if isinstance(self.current_node, SchedulerNode):
+            return (self.current_node.node.get_reduction_type() == "dot"
+                and torch._inductor.config.triton.enable_native_matmul)
+        else :
+            return False
+
     def init_cooperative_reduction(self):
         """One time setup code for cooperative reductions."""
         assert self.cooperative_reduction
@@ -2445,8 +2452,7 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
         if isinstance(index, sympy.Integer):
             if (
                 self.inside_reduction
-                and torch._inductor.config.triton.enable_native_matmul
-                and self.current_node.node.get_reduction_type() == "dot"
+                and self.is_native_matmul()
             ):
                 # Consider the following code:
                 #
@@ -2805,7 +2811,7 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
             if (
                 dtype in (torch.float16, torch.bfloat16)
                 and config.triton.codegen_upcast_to_fp32
-                and not (self.current_node.node.get_reduction_type() == "dot")
+                and not self.is_native_matmul()
             ):
                 line += ".to(tl.float32)"
                 dtype = torch.float32
