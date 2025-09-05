@@ -30,14 +30,15 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from functools import partial
 
-    from triton import Config as TritonConfig
-
     from torch.utils._ordered_set import OrderedSet
+
+    from triton import Config as TritonConfig
 
     from .codegen.common import KernelTemplate
     from .codegen.simd_kernel_features import SIMDKernelFeatures
     from .codegen.triton import TritonKernel
     from .ir import ChoiceCaller
+    from .kernel_template_choice import KernelTemplateChoice
     from .select_algorithm import ExternKernelChoice
 
 
@@ -103,6 +104,40 @@ class InductorChoices:
     ) -> list[Any]:
         flex_heuristics = self.get_config_heuristics(device_type)
         return flex_heuristics.get_flex_decode_configs(head_dim, dtype)
+
+    def _adjust_mm_configs(
+        self,
+        template_choices: dict[str, Generator[KernelTemplateChoice, None, None]],
+        kernel_inputs: KernelInputs,
+        layout: Any,
+        templates: list[Union[KernelTemplate, ExternKernelChoice]],
+        op_name: str,
+        kwarg_overrides: Optional[dict[str, dict[str, Any]]] = None,
+    ) -> list[KernelTemplateChoice]:
+        """
+        This method can be subclassed to perform any override/modification of the choices.
+        The incoming parameters are cheap (generators), so you can do any overrides without
+        incurring too much cost. Override this method to customize the kernel template choices
+        before they are converted to ChoiceCaller objects.
+
+        The full list of arguments are here to facilitate any overrides you may want to do,
+        as they can be used to start from scratch for each template if so desired.
+
+        Args:
+            template_choices: Dictionary mapping template UIDs to generators of KernelTemplateChoice objects
+            kernel_inputs: MMKernelInputs containing input tensor nodes and matrix indices
+            layout: Output layout
+            templates: List of template objects (KernelTemplate or ExternKernelChoice) in use
+            op_name: Operation name (e.g., "bmm", "baddbmm", "addmm")
+            kwarg_overrides: Optional dict of kwargs to override for each template heuristic
+
+        Returns:
+            Flattened list of KernelTemplateChoice objects across all templates
+        """
+        choices: list[KernelTemplateChoice] = []
+        for choice_gen in template_choices.values():
+            choices.extend(choice_gen)
+        return choices
 
     def get_mm_configs(
         self,
@@ -172,13 +207,20 @@ class InductorChoices:
 
             template_choices[template.uid] = choice_gen
 
-        # Second pass: Iterate through templates in original order and collect choices
+        # Second pass: Adjust the template choices
+        adjusted_choices = self._adjust_mm_configs(
+            template_choices,
+            kernel_inputs,
+            layout,
+            templates,
+            op_name,
+            kwarg_overrides,
+        )
         choices = []
-        for template in templates:
-            choice_gen = template_choices[template.uid]
-            for ktc in choice_gen:
-                if ktc.choice is not None:
-                    choices.append(ktc.choice)
+        # Third pass: Get adjusted choices and collect non-None ChoiceCaller objects
+        for ktc in adjusted_choices:
+            if ktc.choice is not None:
+                choices.append(ktc.choice)
 
         return choices
 
