@@ -9,10 +9,7 @@ import torch
 import torch.distributed as dist
 from torch import nn
 from torch.distributed._composable.contract import _get_registry
-from torch.distributed._composable.replicate_with_fsdp import (
-    _get_managed_modules,
-    replicate,
-)
+from torch.distributed._composable.replicate_fsdp import _get_managed_modules, replicate
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.fsdp import fully_shard
 from torch.distributed.tensor import Replicate, Shard
