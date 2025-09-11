@@ -753,30 +753,32 @@ def tuned_mm(mat1, mat2, *, layout=None):
     choices: list[ChoiceCaller] = []
     if use_aten_gemm_kernels():
         choices.extend(
-            V.choices.get_mm_configs(kernel_inputs, [aten_mm], "mm", aten_layout)
+            V.choices.get_mm_configs(kernel_inputs, aten_layout, [aten_mm], "mm")
         )
     static_shape, is_nonzero = _is_static_problem(layout)
 
     if is_nonzero and use_triton_template(layout, check_max_autotune=False):
         # Get template choices using the new unified function
-        choices.extend(V.choices.get_mm_configs(kernel_inputs, [mm_template], "mm"))
+        choices.extend(
+            V.choices.get_mm_configs(kernel_inputs, layout, [mm_template], "mm")
+        )
         if use_triton_tma_template(mat1, mat2):
             # Get TMA template choices using the new unified function
             choices.extend(
                 V.choices.get_mm_configs(
-                    kernel_inputs, [persistent_tma_mm_template], "mm"
+                    kernel_inputs, layout, [persistent_tma_mm_template], "mm"
                 )
             )
 
         if use_decompose_k_choice(m, n, k):
             choices.extend(
                 V.choices.get_mm_configs(
-                    kernel_inputs, [decompose_k_subgraph_template], "mm"
+                    kernel_inputs, layout, [decompose_k_subgraph_template], "mm"
                 )
             )
         choices.extend(
             V.choices.get_mm_configs(
-                kernel_inputs, [mm_contiguous_subgraph_template], "mm"
+                kernel_inputs, layout, [mm_contiguous_subgraph_template], "mm"
             )
         )
 
@@ -818,6 +820,7 @@ def tuned_mm(mat1, mat2, *, layout=None):
                 # mm-extra is a hack to keep the ah functionality alive
                 # while we transition to the unified kwargs retrieval
                 kernel_inputs,
+                layout,
                 [mm_template],
                 "mm-ah",
             )
@@ -893,11 +896,12 @@ def tuned_int_mm(mat1, mat2, *, layout=None):
     choices: list[ChoiceCaller] = []
 
     # Create MMKernelInputs for Int MM
-    kernel_inputs = MMKernelInputs([mat1, mat2], out_dtype=torch.int32)
+    kernel_inputs = MMKernelInputs([mat1, mat2])
     if use_aten_gemm_kernels():
         choices.extend(
             V.choices.get_mm_configs(
                 kernel_inputs,
+                layout,
                 [aten__int_mm],
                 name,
             )
@@ -911,7 +915,9 @@ def tuned_int_mm(mat1, mat2, *, layout=None):
     if is_nonzero and use_triton_template(
         layout, enable_int32=True, check_max_autotune=False
     ):
-        choices.extend(V.choices.get_mm_configs(kernel_inputs, [mm_template], name))
+        choices.extend(
+            V.choices.get_mm_configs(kernel_inputs, layout, [mm_template], name)
+        )
 
     return autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
 
@@ -963,9 +969,9 @@ def tuned_addmm(inp, mat1, mat2, *, alpha=1, beta=1, layout=None):
         choices.extend(
             V.choices.get_mm_configs(
                 kernel_inputs,
+                aten_layout,
                 [aten_addmm],
                 name,
-                aten_layout,
             )
         )
         return autotune_select_algorithm(name, choices, kernel_inputs.nodes(), layout)
@@ -974,6 +980,7 @@ def tuned_addmm(inp, mat1, mat2, *, alpha=1, beta=1, layout=None):
         choices.extend(
             V.choices.get_mm_configs(
                 kernel_inputs,
+                aten_layout,
                 [aten_bias_addmm],
                 name,
             )
@@ -981,6 +988,7 @@ def tuned_addmm(inp, mat1, mat2, *, alpha=1, beta=1, layout=None):
         choices.extend(
             V.choices.get_mm_configs(
                 kernel_inputs,
+                aten_layout,
                 [aten_addmm],
                 name,
             )
@@ -992,6 +1000,7 @@ def tuned_addmm(inp, mat1, mat2, *, alpha=1, beta=1, layout=None):
         choices.extend(
             V.choices.get_mm_configs(
                 kernel_inputs,
+                layout,
                 [mm_template],
                 name,
             )
@@ -1002,6 +1011,7 @@ def tuned_addmm(inp, mat1, mat2, *, alpha=1, beta=1, layout=None):
             choices.extend(
                 V.choices.get_mm_configs(
                     kernel_inputs,
+                    layout,
                     [persistent_tma_mm_template],
                     name,
                 )
@@ -1010,6 +1020,7 @@ def tuned_addmm(inp, mat1, mat2, *, alpha=1, beta=1, layout=None):
         choices.extend(
             V.choices.get_mm_configs(
                 kernel_inputs,
+                layout,
                 [addmm_contiguous_subgraph_template],
                 "addmm",
             )
@@ -1163,15 +1174,14 @@ def tuned_scaled_mm(
         input_nodes = [mat_a, mat_b, scale_a_real, scale_b_real, bias_real]
 
     # Create MMKernelInputs for Scaled MM (matrices are at indices 0, 1)
-    kernel_inputs = MMKernelInputs(
-        input_nodes, mat1_idx=0, mat2_idx=1, out_dtype=out_dtype
-    )
+    kernel_inputs = MMKernelInputs(input_nodes, mat1_idx=0, mat2_idx=1)
 
     choices: list[ChoiceCaller] = []
     if use_aten_gemm_kernels():
         choices.extend(
             V.choices.get_mm_configs(
                 kernel_inputs,
+                layout,
                 [aten__fp8_mm],
                 name,
                 kwarg_overrides={
@@ -1199,6 +1209,7 @@ def tuned_scaled_mm(
             choices.extend(
                 V.choices.get_mm_configs(
                     kernel_inputs,
+                    layout,
                     [scaled_mm_device_tma_template],
                     name,
                     kwarg_overrides={scaled_mm_device_tma_template.uid: overriders},
@@ -1209,6 +1220,7 @@ def tuned_scaled_mm(
         choices.extend(
             V.choices.get_mm_configs(
                 kernel_inputs,
+                layout,
                 [mm_template],
                 name,
                 kwarg_overrides={mm_template.uid: overriders},

@@ -19,6 +19,8 @@ from .registry import register_template_heuristic
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from ..ir import Layout
+
 
 @register_template_heuristic(mm_contiguous_subgraph_template.uid, None, op_name="mm")
 @register_template_heuristic(
@@ -44,6 +46,7 @@ class ContiguousMMHeuristics(GemmMaxAutotuneTemplateConfigHeuristics):
     def _get_template_configs_impl(
         self,
         kernel_inputs: KernelInputs,
+        layout: Layout,
         op_name: str,
     ) -> Generator[dict[str, Any], None, None]:
         """
