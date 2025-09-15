@@ -757,11 +757,6 @@ def is_valid_mm_plus_mm(match: Match):
         return False
 
     if config.triton.native_matmul:
-        shapes = [m1, m2, k1, k2, k3, k4, n1, n2]
-        # if shape is unbacked symint, skip
-        if any(map(has_free_unbacked_symbols, shapes)):
-            return False
-
         if (
             match.kwargs["mat1"].meta["val"].device.type == "cuda"
             and config.cuda_backend == "triton"
@@ -1672,7 +1667,7 @@ def native_matmul_pass(graph: torch.fx.Graph):
 
 
 def is_valid_addmm_fusion(match):
-    mat1, mat2 = match.kwargs["mat1"], match.kwargs["mat2"]
+    mat1, mat2 = match.args
     inp = match.kwargs["inp"]
 
     if not (
@@ -1698,7 +1693,7 @@ def is_valid_addmm_fusion(match):
 @register_graph_pattern(
     CallFunction(
         aten.add,
-        CallFunction(aten.mm, KeywordArg("mat1"), KeywordArg("mat2")),
+        CallFunction(aten.mm, Arg(), Arg()),
         KeywordArg("inp"),
     ),
     pass_dict=pass_patterns[2],
@@ -1708,12 +1703,12 @@ def is_valid_addmm_fusion(match):
     CallFunction(
         aten.add,
         KeywordArg("inp"),
-        CallFunction(aten.mm, KeywordArg("mat1"), KeywordArg("mat2")),
+        CallFunction(aten.mm, Arg(), Arg()),
     ),
     pass_dict=pass_patterns[2],
     extra_check=is_valid_addmm_fusion,
 )
-def addmm(match, inp, mat1, mat2):
+def addmm(match, mat1, mat2, *, inp):
     def repl(inp, mat1, mat2):
         return aten.addmm(inp, mat1, mat2)
 
