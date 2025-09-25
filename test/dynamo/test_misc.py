@@ -50,7 +50,6 @@ from torch._dynamo.testing import (
     CompileCounter,
     CompileCounterWithBackend,
     expectedFailureDynamic,
-    requiresPy310,
     same,
     skipIfNotPy311,
     unsupported,
@@ -8617,7 +8616,7 @@ utils_device.CURRENT_DEVICE == None""".split("\n"):
             get_metrics_context(),
             dynamo_timed(""),
         ):
-            capture_output = fullgraph_capture(foo, (x,), {})
+            capture_output = fullgraph_capture(foo, (x,))
             graph_capture_output = capture_output.graph_capture_output
             fn = graph_capture_output.build_guards(foo.__code__)
 
@@ -10615,7 +10614,6 @@ def ___make_guard_fn():
 
         self.assertEqual(actual, expected)
 
-    @requiresPy310
     def test_frozen_dataclass_kw_only(self):
         @dataclasses.dataclass(frozen=True)
         class TestDataClass:

@@ -1,6 +1,7 @@
 tracking_issue: 24422
 ciflow_tracking_issue: 64124
 ciflow_push_tags:
+- ciflow/b200
 - ciflow/b200-distributed
 - ciflow/binaries
 - ciflow/binaries_libtorch
@@ -25,6 +26,7 @@ ciflow_push_tags:
 - ciflow/periodic
 - ciflow/periodic-rocm-mi300
 - ciflow/pull
+- ciflow/quantization-periodic
 - ciflow/riscv64
 - ciflow/rocm
 - ciflow/rocm-mi300
@@ -36,9 +38,7 @@ ciflow_push_tags:
 - ciflow/unstable
 - ciflow/vllm
 - ciflow/win-arm64
-- ciflow/h100-symm-mem
-- ciflow/h100-cutlass-backend
-- ciflow/b200
+- ciflow/xpu
 retryable_workflows:
 - pull
 - trunk
