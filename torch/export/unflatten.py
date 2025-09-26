@@ -1221,6 +1221,8 @@ class _ModuleFrame:
         return node
 
     def remap_input(self, x):
+        print(x)
+        breakpoint()
         assert x.graph is self.flat_graph
         if x in self.node_map:
             return self.node_map[x]
