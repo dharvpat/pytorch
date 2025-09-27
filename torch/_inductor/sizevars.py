@@ -758,7 +758,11 @@ class SizeVarAllocator:
             expr = sympy.factor(new_expr)
 
     def atomically_apply_size_hint(
-        self, expr: Union[Expr, int], *, fallback: Optional[int] = None
+        self,
+        expr: Union[Expr, int],
+        *,
+        fallback: Optional[int] = None,
+        hint_override: Optional[int] = None,
     ) -> Union[Expr, int]:
         if isinstance(expr, (int, sympy.Integer)):
             return int(expr)
@@ -775,7 +779,9 @@ class SizeVarAllocator:
         assert isinstance(expr, Expr), type(expr)
         free_symbols = expr.free_symbols
         size_dict = {
-            symbol: V.graph.sizevars.size_hint(symbol, fallback=fallback)
+            symbol: V.graph.sizevars.size_hint(
+                symbol, fallback=fallback, hint_override=hint_override
+            )
             for symbol in free_symbols
         }
         return expr.subs(size_dict)
