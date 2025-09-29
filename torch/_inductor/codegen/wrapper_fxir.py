@@ -960,6 +960,7 @@ class FxConverter:
                 return torch.empty_strided(
                     to_size_hint(fake.shape),
                     to_size_hint(fake.stride()),
+                    dtype=fake.dtype,
                     device=device,
                 ).zero_()
 
@@ -1002,6 +1003,7 @@ class FxConverter:
             return tuple(new_call_args)
 
         kernel_config = tuner.compile_results[0].config
+        extra_options = kernel_config.extra_options if hasattr(kernel_config, "extra_options") else None
         call_args = add_constants_to_call_args(call_args, kernel_config)
         call_args, grid = tuner._interpret_args_grid(call_args, kernel_config)
         call_kwargs = dict(zip(signature, call_args))
@@ -1021,7 +1023,7 @@ class FxConverter:
             constant_args_idx,
         ) = tracing_triton_hopifier_singleton.store_non_graphable_args(call_kwargs)
 
-        self.gm.graph.call_function(
+        triton_node = self.gm.graph.call_function(
             triton_kernel_wrapper_mutation,
             kwargs={
                 "kernel_idx": kernel.wrapped.kernel_idx,
@@ -1029,8 +1031,10 @@ class FxConverter:
                 "grid": wrapper_grid,
                 "tma_descriptor_metadata": {},
                 "kwargs": call_kwargs,
-            },
+            }
         )
+        if extra_options:
+            triton_node.meta["extra_options"] = extra_options
 
     def _generate_extern_kernel_alloc(self, line: WrapperLine) -> None:
         assert isinstance(line, ExternKernelAllocLine)
