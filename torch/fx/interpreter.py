@@ -7,6 +7,9 @@ import torch
 import torch.fx.traceback as fx_traceback
 from torch._logging import trace_structured
 from torch.hub import tqdm
+from torch.profiler import profile, record_function, ProfilerActivity
+import torch._C._profiler as _profiler
+import json
 
 from . import config
 from ._compatibility import compatibility
@@ -161,6 +164,8 @@ class Interpreter:
             delay=0,
         )
 
+        stack_traces = {}
+
         for node in self.graph.nodes:
             pbar.update(1)
             if node in self.env:
@@ -171,7 +176,10 @@ class Interpreter:
                 continue
 
             try:
-                self.env[node] = self.run_node(node)
+                with torch.profiler.record_function(node.name):
+                    self.env[node] = self.run_node(node)
+                if node.stack_trace:
+                    stack_traces[node.name] = node.stack_trace.replace("\"", "'")
             except Exception as e:
                 if self.extra_traceback:
                     msg = f"While executing {node.format_node()}"
@@ -212,6 +220,9 @@ class Interpreter:
                     if enable_io_processing
                     else output_val
                 )
+            # add stack traces to metadata
+            # TODO: need to distinguish nodes between different graphs, maybe need to add a graph ID
+            torch.autograd._add_metadata_json("node_stack_traces", json.dumps(stack_traces))
 
     @compatibility(is_backward_compatible=True)
     def boxed_run(self, args_list):
