@@ -57,6 +57,55 @@ namespace at::native {
 
 namespace {
 
+// NOTE: conjugation is handled seperately
+enum class CublasPrepTransType : int {
+  N = 0, // no transposition, no copy
+  T_BORROWED = 1, // transpose, no copy
+  T_OWNED = 2 // make a contiguous copy, then transpose
+};
+
+// Fast dim must be contiguous, and the leading one
+// should have a stride max(1, length of the fast dim)
+inline bool matrix_ld_complies_cublas(const Tensor& t, int64_t ld_idx) {
+  // fast dim index: assuming ld_idx is in {0, 1}
+  const auto fd_idx = static_cast<int64_t>(1) - ld_idx;
+  const auto t_strides = t.strides();
+  return t_strides[fd_idx] == 1 && t_strides[ld_idx] >= std::max<int64_t>(1, t.sizes()[fd_idx]);
+}
+
+inline CublasPrepTransType predict_matrix_trans_type_cublas(const Tensor& t) {
+  // We transpose a tensor if the rows dim (dim 0) complies
+  // with the cublas requirements for the leading dimension
+  const auto row_dim_ld_compliant = matrix_ld_complies_cublas(t, /*ld_idx=*/0);
+  if (row_dim_ld_compliant) {
+    return CublasPrepTransType::T_BORROWED; // no copy
+  } else {
+    // If neither row nor col dim complies, a contiguous copy is created
+    // which has its row dim compliant, so the tensor will need transposition
+    return matrix_ld_complies_cublas(t, /*ld_idx=*/1)
+      ? CublasPrepTransType::N // no copy
+      : CublasPrepTransType::T_OWNED; // copy
+  }
+}
+
+inline std::tuple<CublasPrepTransType, CublasPrepTransType, CublasPrepTransType>
+predict_gemm_args_trans_type_cublas(const Tensor& result, const Tensor& mat1, const Tensor& mat2) {
+  const auto result_trans_type = predict_matrix_trans_type_cublas(result);
+  if (result_trans_type == CublasPrepTransType::N) {
+    return std::make_tuple(
+        result_trans_type,
+        predict_matrix_trans_type_cublas(mat1),
+        predict_matrix_trans_type_cublas(mat2)
+    );
+  } else {
+    return std::make_tuple(
+        result_trans_type,
+        predict_matrix_trans_type_cublas(mat1.mT()),
+        predict_matrix_trans_type_cublas(mat2.mT())
+    );
+  }
+}
+
 // TODO: https://github.com/pytorch/pytorch/pull/59380#pullrequestreview-725310492
 c10::MaybeOwned<Tensor> inline resolve_conj_if_indicated(const Tensor& tensor, bool resolve_conj) {
   if (resolve_conj && tensor.is_conj()) {
@@ -176,6 +225,17 @@ struct cublasCommonArgs {
     if (transpose_result) {
       transpose_a = !transpose_a;
       transpose_b = !transpose_b;
+    }
+
+    const auto [res_trans_type, mat1_trans_type, mat2_trans_type] = predict_gemm_args_trans_type_cublas(c, mat1, mat2);
+    TORCH_CHECK(static_cast<bool>(res_trans_type) == transpose_result);
+    std::cout << "trans_res: " << transpose_result << ", transa: " << transpose_a << ", transb: " << transpose_b << ", mat1: " << static_cast<int>(mat1_trans_type) << ", mat2: " << static_cast<int>(mat2_trans_type) << std::endl;
+    if (transpose_result) {
+      //TORCH_CHECK(transpose_a == static_cast<bool>(mat2_trans_type))
+      //TORCH_CHECK(transpose_b == static_cast<bool>(mat1_trans_type))
+    } else {
+      TORCH_CHECK(transpose_a == static_cast<bool>(mat1_trans_type))
+      TORCH_CHECK(transpose_b == static_cast<bool>(mat2_trans_type))
     }
 
     auto sizes_a = mata->sizes();
