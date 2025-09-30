@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from itertools import product
 
+import torch
 from torch.distributed._pycute import (
     coalesce,
     complement,
@@ -243,3 +244,53 @@ class _MeshLayout(Layout):
         """
         ranks = self.all_ranks_from_zero()
         return len(ranks) == len(set(ranks))
+
+    def remap_to_tensor(
+        self,
+        mesh_tensor: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Leverage layout as an index for mesh tensor that re-maps the indexes after layout
+        transformation to actual device ranks.
+
+        With this method, the cute layout serves as the backend of indices bookkeeping for the
+        mesh tensor when it comes to flatten, unflatten and slicing operations. The actual mesh
+        tensor still represents the actual device assignment and ranks. We need this function
+        to specify device allocation and create backend for a mesh. Although any transform of mesh tensors
+        can be treated as a view or subset of mesh tensor, we do need to use the actual view or
+        sub-tensor for DeviceMesh and its backend creation.
+
+        The shape of the `mesh_tensor` can be any size because users can define a device mesh with any
+        shapes. But we can further refactor the code so that internally we can only support 1D mesh tensor
+        and reconstruct the mesh tensor with the shape of the layout when accessed by users.
+        #TODO: Only support 1D mesh tensor stored internally and reconstruct the mesh tensor via layout.
+
+        Examples:
+
+        Case 1 - Consecutive ranks, full world:
+            original_mesh_tensor = [[0,1],[2,3]]  # 2x2 mesh, ranks 0-3
+            world_size = 4
+            layout = Layout(2:2)
+            Return: [[0,2],[1,3]]
+
+        Case 2 - Non-consecutive ranks:
+            original_mesh_tensor = [[10,20],[30,40]]  # custom rank assignment
+            world_size = 4
+            layout = Layout(2:2)
+            Return: [[[10,30],[20,40]]]
+
+        Args:
+            mesh_tensor: The concrete mesh tensor with actual device ranks
+
+        Returns:
+            torch.Tensor: A tensor representing the actual device allocation from mesh_tensor
+        """
+
+        # Create indexing tensor of the mesh mesh
+        ranks_indices_list = self.global_ranks(mesh_tensor.numel())
+        indices = torch.tensor(ranks_indices_list, device="cpu", dtype=torch.int).view(
+            -1,
+            *flatten(self.sizes),  # type: ignore[arg-type]
+        )
+
+        return mesh_tensor.flatten()[indices]
