@@ -1,12 +1,16 @@
 import collections
 
 import torch
+from torch._subclasses.fake_tensor import FakeTensor
 from torch.utils._ordered_set import OrderedSet
 
 
 def _end_ptr(tensor: torch.Tensor) -> int:
     if tensor.nelement():
-        stop = tensor.view(-1)[-1].data_ptr() + tensor.element_size()
+        if tensor.is_contiguous():
+            return tensor.view(-1)[-1].data_ptr() + tensor.element_size()
+        else:
+            stop = tensor.reshape(-1)[-1].data_ptr() + tensor.element_size()
     else:
         stop = tensor.data_ptr()
     return stop
@@ -14,26 +18,41 @@ def _end_ptr(tensor: torch.Tensor) -> int:
 
 class TensorProperties:
     def __init__(self, tensor: torch.Tensor):
+        self.is_fake = isinstance(tensor, FakeTensor)
         # info about underlying storage
-        self.storage_ptr = tensor.untyped_storage().data_ptr()
-        self.storage_size = tensor.untyped_storage().nbytes()
+        if self.is_fake:
+            self.storage_ptr, self.storage_size, self.start, self.end = (
+                None,
+                None,
+                None,
+                None,
+            )
+        else:
+            self.storage_ptr = tensor.untyped_storage().data_ptr()
+            self.storage_size = tensor.untyped_storage().nbytes()
+            self.start = tensor.data_ptr()
+            self.end = _end_ptr(tensor)
 
         # info to recover tensor
         self.shape = tensor.shape
         self.stride = tensor.stride()
         self.offset = tensor.storage_offset()
 
-        self.start = tensor.data_ptr()
-        self.end = _end_ptr(tensor)
-
     def is_complete(self) -> bool:
         """
         Whether the tensor completely overlaps with its underlying storage
         """
-        return (
-            self.start == self.storage_ptr
-            and self.end == self.storage_ptr + self.storage_size
-        )
+        if self.is_fake:
+            return True
+        else:
+            assert self.storage_ptr is not None
+            assert self.storage_size is not None
+            assert self.start is not None
+            assert self.end is not None
+            return (
+                self.start == self.storage_ptr
+                and self.end == self.storage_ptr + self.storage_size
+            )
 
 
 class Weights(dict):
@@ -79,6 +98,9 @@ def get_complete(
         tensor_property = get_tensor_properties(name_tuple)
         if tensor_property.is_complete():
             return name_tuple
+
+    if len(group) == 1:
+        return name_tuple
 
     raise RuntimeError("No complete tensor found in the group!")
 
