@@ -1677,6 +1677,10 @@ class MultiProcContinuousTest(TestCase):
         self.rank = cls.rank
         self.world_size = cls.world_size
         test_fn = getattr(self, test_name)
+
+        # Ensure all the ranks use the same seed.
+        common_utils.set_rng_seed()
+
         # Run the test function
         test_fn(**kwargs)
 
